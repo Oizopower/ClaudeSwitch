@@ -24,8 +24,10 @@ single-instance lock is per profile directory.
 
 ## Installing
 
-1. Clone the repository and build (see below), or drop `ClaudeSwitch.exe` in a folder of
-   your choice.
+1. Download `ClaudeSwitch.exe` from the
+   [latest release](https://github.com/Oizopower/ClaudeSwitch/releases/latest) and put it in
+   a folder of your choice — or clone the repository and build it yourself (see below).
+   The binary is unsigned, so SmartScreen may ask you to confirm on first run.
 2. Open it once and click **settings → Add to Start menu** to put ClaudeSwitch in the
    Start menu.
 3. Optionally pin it and unpin the original Claude tile, so ClaudeSwitch becomes the way
