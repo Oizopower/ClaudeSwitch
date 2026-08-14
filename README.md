@@ -62,8 +62,9 @@ Click **settings** at the bottom right of the window. The profile list has these
 | **Make default** | Makes the selected profile use your existing Claude login. The previous default gets its own folder instead, and signs in once. |
 | **Add to Start menu** | Creates the Start menu entry and attempts to pin it. |
 
-Names must be unique and directories must be absolute paths; the app tells you when they
-are not, instead of saving something broken.
+Names must be unique and folders must be absolute paths; the app tells you when they are
+not, instead of saving something broken. Environment variables are supported and stored
+unexpanded, so `%USERPROFILE%\.claude-personal` keeps working on another machine.
 
 **Make default** is what you use on a second machine. If your personal account is the one
 signed into Claude Desktop at home, select that profile there and click it — no config file

@@ -133,6 +133,17 @@ static class ClaudeSwitch
         return sb.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant();
     }
 
+    // Paths may contain environment variables (%USERPROFILE%\...). They are stored as
+    // typed so a profile stays valid on another machine, and expanded on use.
+    // A trailing separator is dropped: it would escape the closing quote of the
+    // --user-data-dir argument on the command line.
+    static string ExpandPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return "";
+        string expanded = Environment.ExpandEnvironmentVariables(path).Trim();
+        return expanded.TrimEnd('\\', '/');
+    }
+
     static string SuggestPath(string name)
     {
         StringBuilder sb = new StringBuilder();
@@ -194,8 +205,9 @@ static class ClaudeSwitch
             string exe = System.IO.Path.Combine(rootFolder, System.IO.Path.Combine("app", "claude.exe"));
             if (!File.Exists(exe))
                 throw new Exception("claude.exe was not found in " + rootFolder);
-            Directory.CreateDirectory(profile.Path);
-            Process.Start(exe, "--user-data-dir=\"" + profile.Path + "\"");
+            string dir = ExpandPath(profile.Path);
+            Directory.CreateDirectory(dir);
+            Process.Start(exe, "--user-data-dir=\"" + dir + "\"");
         }
     }
 
@@ -360,7 +372,7 @@ static class ClaudeSwitch
             };
             dlg.Controls.Add(btnBrowse);
 
-            Label hint = MakeLabel("Leave empty to get a folder under profiles\\ automatically.", 76, 76, 320);
+            Label hint = MakeLabel("Leave empty for a folder under profiles\\. Variables like %USERPROFILE% work.", 76, 76, 320);
             hint.ForeColor = ColDim;
             hint.Font = new Font("Segoe UI", 8f);
             dlg.Controls.Add(hint);
@@ -412,11 +424,13 @@ static class ClaudeSwitch
                 else
                 {
                     bool valid;
-                    try { valid = System.IO.Path.IsPathRooted(newPath) && System.IO.Path.GetFullPath(newPath) != null; }
+                    string expanded = ExpandPath(newPath);
+                    try { valid = System.IO.Path.IsPathRooted(expanded) && System.IO.Path.GetFullPath(expanded) != null; }
                     catch { valid = false; }
                     if (!valid)
                     {
-                        MessageBox.Show(dlg, "That folder is not valid. Enter a full path, for example D:\\ClaudeProfiles\\name.",
+                        MessageBox.Show(dlg, "That folder is not valid. Enter a full path, for example " +
+                            "D:\\ClaudeProfiles\\name or %USERPROFILE%\\.claude-work.",
                             "ClaudeSwitch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
