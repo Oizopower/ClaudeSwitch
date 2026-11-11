@@ -15,6 +15,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -24,6 +25,58 @@ class Profile
 {
     public string Name;
     public string Path;   // empty = the default Claude profile
+}
+
+// The picker window. It can only be resized sideways: the top and bottom borders do not
+// drag, the corners act as the side next to them, and while dragging the size snaps to
+// whatever SnapClientSize returns (whole button columns, height following the rows).
+class PickerForm : Form
+{
+    const int WM_NCHITTEST = 0x0084, WM_SIZING = 0x0214;
+    const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14,
+              HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17, HTBORDER = 18;
+    const int WMSZ_LEFT = 1, WMSZ_TOPLEFT = 4, WMSZ_BOTTOMLEFT = 7;
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT { public int Left, Top, Right, Bottom; }
+
+    // Maps a proposed client width to the client size the window should get.
+    public Func<int, Size> SnapClientSize;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_SIZING && SnapClientSize != null)
+        {
+            RECT r = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+            Size chrome = Size - ClientSize;
+            Size client = SnapClientSize(r.Right - r.Left - chrome.Width);
+            int width = client.Width + chrome.Width;
+            int edge = m.WParam.ToInt32();
+            if (edge == WMSZ_LEFT || edge == WMSZ_TOPLEFT || edge == WMSZ_BOTTOMLEFT)
+                r.Left = r.Right - width;   // keep the opposite edge where it is
+            else
+                r.Right = r.Left + width;
+            r.Bottom = r.Top + client.Height + chrome.Height;
+            Marshal.StructureToPtr(r, m.LParam, false);
+            m.Result = (IntPtr)1;
+            return;
+        }
+
+        base.WndProc(ref m);
+
+        if (m.Msg == WM_NCHITTEST)
+        {
+            switch (m.Result.ToInt32())
+            {
+                case HTTOP:
+                case HTBOTTOM: m.Result = (IntPtr)HTBORDER; break;
+                case HTTOPLEFT:
+                case HTBOTTOMLEFT: m.Result = (IntPtr)HTLEFT; break;
+                case HTTOPRIGHT:
+                case HTBOTTOMRIGHT: m.Result = (IntPtr)HTRIGHT; break;
+            }
+        }
+    }
 }
 
 static class ClaudeSwitch
@@ -630,11 +683,35 @@ static class ClaudeSwitch
 
     // ---------- picker window ----------
 
+    // Button grid of the picker. A grid of n columns is GridMargin + n * ColPitch wide.
+    const int GridMargin = 20, GridTop = 50;
+    const int ButtonW = 150, ButtonH = 70, ColPitch = 170, RowPitch = 80;
+    const int DefaultColumns = 3;     // up to three profiles on one row, the fourth wraps
+    const int MinWindowColumns = 2;   // never narrower than two columns: the question must fit
+    const string SettingsKey = @"Software\ClaudeSwitch";
+
+    // Number of columns the user chose by resizing the picker (DefaultColumns until then).
+    static int LoadColumns()
+    {
+        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKey))
+        {
+            object value = (key == null) ? null : key.GetValue("Columns");
+            return (value is int && (int)value > 0) ? (int)value : DefaultColumns;
+        }
+    }
+
+    static void SaveColumns(int columns)
+    {
+        using (RegistryKey key = Registry.CurrentUser.CreateSubKey(SettingsKey))
+            key.SetValue("Columns", columns, RegistryValueKind.DWord);
+    }
+
     static Form BuildMainForm(List<Profile> profiles)
     {
-        Form form = new Form();
+        PickerForm form = new PickerForm();
         form.Text = "ClaudeSwitch";
-        form.FormBorderStyle = FormBorderStyle.FixedSingle;
+        form.FormBorderStyle = FormBorderStyle.Sizable;
+        form.SizeGripStyle = SizeGripStyle.Hide;
         form.MaximizeBox = false;
         form.MinimizeBox = false;
         form.StartPosition = FormStartPosition.CenterScreen;
@@ -647,26 +724,97 @@ static class ClaudeSwitch
         try { form.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
         catch { }
 
-        Action layout = null;
-        layout = delegate
+        Label label = new Label();
+        label.Text = "Which account do you want to start Claude with?";
+        label.ForeColor = ColText;
+        label.Font = new Font("Segoe UI", 10f);
+        label.TextAlign = ContentAlignment.MiddleCenter;
+        form.Controls.Add(label);
+
+        Label footer = new Label();
+        footer.ForeColor = ColDim;
+        footer.Font = new Font("Segoe UI", 8f);
+        footer.TextAlign = ContentAlignment.MiddleLeft;
+        form.Controls.Add(footer);
+
+        LinkLabel settings = new LinkLabel();
+        settings.Text = "settings";
+        settings.LinkColor = ColDim;
+        settings.ActiveLinkColor = ColText;
+        settings.LinkBehavior = LinkBehavior.HoverUnderline;
+        settings.Font = new Font("Segoe UI", 8f);
+        settings.TextAlign = ContentAlignment.MiddleRight;
+        form.Controls.Add(settings);
+
+        List<Button> buttons = new List<Button>();
+        int preferred = LoadColumns();
+
+        // Columns the window is wide: at least MinWindowColumns, at most one per profile,
+        // and never wider than the screen it is on.
+        Func<int, int> clampColumns = delegate(int columns)
+        {
+            int chromeWidth = form.Width - form.ClientSize.Width;
+            int screenMax = (Screen.FromControl(form).WorkingArea.Width - chromeWidth - GridMargin) / ColPitch;
+            int max = Math.Max(MinWindowColumns, Math.Min(profiles.Count, screenMax));
+            return Math.Max(MinWindowColumns, Math.Min(columns, max));
+        };
+
+        Func<int, int> buttonsPerRow = delegate(int columns)
+        {
+            return Math.Max(1, Math.Min(columns, profiles.Count));
+        };
+
+        Func<int, Size> clientSizeFor = delegate(int columns)
+        {
+            int perRow = buttonsPerRow(columns);
+            int rows = (profiles.Count + perRow - 1) / perRow;
+            return new Size(GridMargin + columns * ColPitch, GridTop + rows * RowPitch + 28);
+        };
+
+        // While the user drags a side, the width snaps to the nearest whole column.
+        form.SnapClientSize = delegate(int width)
+        {
+            int columns = (int)Math.Round((width - GridMargin) / (double)ColPitch);
+            return clientSizeFor(clampColumns(columns));
+        };
+
+        Func<int> currentColumns = delegate
+        {
+            return clampColumns((form.ClientSize.Width - GridMargin) / ColPitch);
+        };
+
+        // Places the controls for the current width; the grid is centred, so a lone
+        // button does not hug the left edge of the (two-column minimum) window.
+        Action arrange = delegate
+        {
+            int width = form.ClientSize.Width;
+            int perRow = buttonsPerRow(currentColumns());
+            int rows = (buttons.Count + perRow - 1) / perRow;
+            int left = (width - (perRow * ColPitch - (ColPitch - ButtonW))) / 2;
+            for (int i = 0; i < buttons.Count; i++)
+                buttons[i].SetBounds(left + (i % perRow) * ColPitch, GridTop + (i / perRow) * RowPitch, ButtonW, ButtonH);
+
+            int footerY = GridTop + rows * RowPitch + 4;
+            label.SetBounds(0, 12, width, 24);
+            footer.SetBounds(GridMargin, footerY, width - 2 * GridMargin - 90, 18);
+            settings.SetBounds(width - GridMargin - 90, footerY, 90, 18);
+        };
+
+        Action rebuild = delegate
         {
             form.SuspendLayout();
-            form.Controls.Clear();
-
-            Label label = new Label();
-            label.Text = "Which account do you want to start Claude with?";
-            label.ForeColor = ColText;
-            label.Font = new Font("Segoe UI", 10f);
-            label.TextAlign = ContentAlignment.MiddleCenter;
-            label.SetBounds(0, 12, 360, 24);
-            form.Controls.Add(label);
+            foreach (Button old in buttons)
+            {
+                form.Controls.Remove(old);
+                old.Dispose();
+            }
+            buttons.Clear();
 
             for (int i = 0; i < profiles.Count; i++)
             {
                 Profile p = profiles[i];
                 Button btn = new Button();
                 btn.Text = p.Name;
-                btn.SetBounds(20 + (i % 2) * 170, 50 + (i / 2) * 80, 150, 70);
                 if (i == 0) StyleButton(btn, ColOrange, ColBg, 14f);
                 else StyleButton(btn, ColSlate, ColText, 14f);
                 btn.Click += delegate
@@ -682,39 +830,37 @@ static class ClaudeSwitch
                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 };
+                buttons.Add(btn);
                 form.Controls.Add(btn);
             }
-
-            int rows = (profiles.Count + 1) / 2;
-            int footerY = 50 + rows * 80 + 4;
-
-            Label footer = new Label();
             footer.Text = "★ " + profiles[0].Name + " = your Claude login";
-            footer.ForeColor = ColDim;
-            footer.Font = new Font("Segoe UI", 8f);
-            footer.TextAlign = ContentAlignment.MiddleLeft;
-            footer.SetBounds(20, footerY, 220, 18);
-            form.Controls.Add(footer);
 
-            LinkLabel settings = new LinkLabel();
-            settings.Text = "settings";
-            settings.LinkColor = ColDim;
-            settings.ActiveLinkColor = ColText;
-            settings.LinkBehavior = LinkBehavior.HoverUnderline;
-            settings.Font = new Font("Segoe UI", 8f);
-            settings.TextAlign = ContentAlignment.MiddleRight;
-            settings.SetBounds(250, footerY, 90, 18);
-            settings.Click += delegate
-            {
-                ShowSettings(form, profiles);
-                layout();
-            };
-            form.Controls.Add(settings);
-
-            form.ClientSize = new Size(360, footerY + 24);
+            form.ClientSize = clientSizeFor(clampColumns(preferred));
+            arrange();
             form.ResumeLayout();
         };
-        layout();
+
+        settings.Click += delegate
+        {
+            ShowSettings(form, profiles);
+            rebuild();
+        };
+
+        form.Resize += delegate { arrange(); };
+
+        // Remember a width the user dragged to. Moving the window also ends here, so only
+        // save when the column count actually changed.
+        form.ResizeEnd += delegate
+        {
+            int columns = currentColumns();
+            if (columns != clampColumns(preferred))
+            {
+                preferred = columns;
+                try { SaveColumns(columns); } catch { }
+            }
+        };
+
+        rebuild();
         return form;
     }
 

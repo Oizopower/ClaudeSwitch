@@ -41,6 +41,11 @@ single-instance lock is per profile directory.
 
 Double-click **ClaudeSwitch** and pick a profile. `Esc` closes the window.
 
+The window sizes itself to your profiles: up to three buttons sit side by side, and from
+the fourth one they continue on the next row. Prefer a wider or narrower layout? Drag the
+left or right edge of the window. The width snaps to whole buttons, the height follows the
+number of rows, and the choice is remembered for next time.
+
 You can also skip the window entirely and pass a profile name — handy for extra shortcuts.
 Matching ignores case and accents, so `prive` finds a profile named `Privé`:
 
@@ -84,7 +89,9 @@ value `PackageRootFolder`). This works without needing read access to the protec
 
 Profiles are stored in the registry under `HKCU\Software\ClaudeSwitch\Profiles`, one subkey
 per profile with `Name` and `Path` values. The subkey at index `0` is the default profile and
-always has an empty path. The tree is rewritten on save, so indices stay contiguous.
+always has an empty path. The tree is rewritten on save, so indices stay contiguous. The
+number of button columns you chose by resizing the window is kept next to it, as the
+`Columns` value under `HKCU\Software\ClaudeSwitch`.
 
 ## Building
 
