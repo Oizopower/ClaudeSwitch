@@ -34,3 +34,6 @@ desktop.ini
 
 # Packaged releases
 *.zip
+
+# Mac build output
+mac/build/

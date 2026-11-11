@@ -5,6 +5,7 @@ account of your choice. Claude Desktop only signs in one account at a time; Clau
 gives each account its own profile directory so you can run work and personal side by side.
 
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4)
+![macOS](https://img.shields.io/badge/macOS-11%2B%20(experimental)-555555)
 ![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.x-512BD4)
 ![License](https://img.shields.io/badge/license-GPLv3-blue)
 
@@ -36,6 +37,38 @@ single-instance lock is per profile directory.
 > **Note on pinning:** Windows blocks applications from pinning themselves to Start
 > (`E_ACCESSDENIED`). ClaudeSwitch creates the Start menu entry automatically and then opens
 > the apps folder so you can right-click it and choose *Pin to Start* — one click, once.
+
+## macOS (experimental)
+
+There is a Mac version too: `ClaudeSwitch-mac.zip` in the
+[latest release](https://github.com/Oizopower/ClaudeSwitch/releases/latest). It looks and
+works like the Windows picker (same buttons, settings, remembered width) and needs macOS 11
+or later on Apple silicon or Intel.
+
+> **Experimental:** the Mac version is built and tested automatically on a macOS machine
+> with the real Claude Desktop — profiles start with their own folder, run side by side,
+> and picking a running profile brings it to the front instead of starting a copy — but it
+> has not been used day to day by a person yet. Feedback in the issues is welcome.
+
+1. Unzip it and drag **ClaudeSwitch** to *Applications*.
+2. The app is not signed with an Apple Developer ID, so macOS blocks it on first launch.
+   Open it once, then go to *System Settings → Privacy & Security* and click
+   **Open Anyway**. (Or in Terminal: `xattr -dr com.apple.quarantine /Applications/ClaudeSwitch.app`.)
+3. Drag it to the Dock if you want it there.
+
+Differences from Windows:
+
+- Profiles are stored in the app's preferences (`defaults read io.github.oizopower.ClaudeSwitch`),
+  new profile folders go to `~/Library/Application Support/ClaudeSwitch/profiles/`, and paths
+  accept `~` and `$HOME`.
+- Settings open from the `settings` link or with **⌘,**. There is no Start-menu button.
+- A profile that is already running is brought to the front rather than started again.
+- From Terminal or a script: `open -a ClaudeSwitch --args Work`.
+
+**Signing in a second account:** Claude's sign-in returns to the app through a `claude://`
+link, and macOS hands that link to one running Claude. If the sign-in of a new profile ends
+up in the wrong window, quit the other Claude first, sign in, and start it again; the login is
+remembered after that.
 
 ## Using it
 
@@ -105,6 +138,14 @@ Framework 4.x, no SDK or Visual Studio needed:
 This produces `ClaudeSwitch.exe` next to the source, with the icon embedded. The code
 targets C# 5 syntax because that is what the bundled compiler accepts.
 
+The Mac version builds on a Mac with the Xcode command line tools (`xcode-select --install`):
+
+```sh
+bash mac/build.sh
+```
+
+This produces `mac/build/ClaudeSwitch.app` and `mac/build/ClaudeSwitch-mac.zip`.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -112,6 +153,10 @@ targets C# 5 syntax because that is what the bundled compiler accepts.
 | `ClaudeSwitch.cs` | The entire application — window, settings, launch logic |
 | `build.ps1` | One-line build script |
 | `claudeswitch.ico` | Application icon |
+| `mac/ClaudeSwitch.swift` | The macOS version, same features, in one Swift file |
+| `mac/build.sh` | Builds `ClaudeSwitch.app` (universal) and the zip; needs only the Xcode command line tools |
+| `mac/test.sh` | Smoke test against the real Claude Desktop, run by CI on a macOS runner |
+| `.github/workflows/mac.yml` | Builds and tests the Mac version on every change |
 
 `profiles/` holds live account data and is deliberately excluded from version control.
 

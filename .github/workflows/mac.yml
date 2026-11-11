@@ -1,0 +1,38 @@
+name: Mac build
+
+on:
+  push:
+    paths: ['mac/**', '.github/workflows/mac.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ClaudeSwitch.app
+        run: bash mac/build.sh
+
+      - name: Install Claude Desktop
+        run: |
+          brew install --cask claude
+          brew install cliclick
+          xattr -dr com.apple.quarantine /Applications/Claude.app || true
+
+      - name: Smoke test
+        run: bash mac/test.sh
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeSwitch-mac
+          path: mac/build/ClaudeSwitch-mac.zip
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: mac/build/*.png
+          if-no-files-found: ignore
